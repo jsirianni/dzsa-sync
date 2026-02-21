@@ -6,6 +6,8 @@ Register DayZ Standalone servers with [dayzsalauncher.com](https://dayzsalaunche
 
 - **Configuration:** [docs/configuration.md](docs/configuration.md)
 - **Installation:** [docs/installation.md](docs/installation.md)
+- **Architecture:** [docs/architecture.md](docs/architecture.md)
+- **Development:** [docs/develop.md](docs/develop.md)
 
 ## Features
 
