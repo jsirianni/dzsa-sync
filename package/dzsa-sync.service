@@ -1,0 +1,16 @@
+[Unit]
+Description=dzsa-sync - DayZ Server Launcher registration sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dzsa-sync
+Group=dzsa-sync
+ExecStart=/usr/bin/dzsa-sync -config /etc/dzsa-sync/config.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

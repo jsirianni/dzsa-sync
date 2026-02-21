@@ -1,0 +1,11 @@
+# dzsa-sync configuration
+# See docs/configuration.md for full reference.
+
+# detect_ip: when true, use https://ifconfig.net/json to detect external IP
+# detect_ip: false
+
+# external_ip: required when detect_ip is false
+# external_ip: ""
+
+# ports: list of server query ports to register with DZSA launcher
+# ports: []
