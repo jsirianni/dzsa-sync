@@ -207,6 +207,9 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 		)
 	}
 
+	// Sync once on startup before waiting for the interval
+	syncOnce()
+
 	for {
 		select {
 		case <-ticker.C:
