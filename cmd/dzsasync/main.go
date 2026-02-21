@@ -197,7 +197,7 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 	defer ticker.Stop()
 
 	syncOnce := func() {
-		jitter := time.Duration(rand.Intn(syncJitterMaxSeconds+1)) * time.Second
+		jitter := time.Duration(rand.Intn(syncJitterMaxSeconds+1)) * time.Second // #nosec G404 -- jitter only, not security-sensitive
 		if jitter > 0 {
 			select {
 			case <-ctx.Done():
