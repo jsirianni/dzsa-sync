@@ -16,6 +16,8 @@ type Config struct {
 	ExternalIP string `yaml:"external_ip"`
 	// Ports is the list of server query ports to register with DZSA launcher.
 	Ports []int `yaml:"ports"`
+	// LogPath is the path to the log file (JSON, rotated via lumberjack). Empty uses the default.
+	LogPath string `yaml:"log_path"`
 }
 
 // NewFromFile reads configuration from a YAML file.
@@ -33,6 +35,9 @@ func NewFromFile(path string) (*Config, error) {
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
+	if c.LogPath == "" {
+		return fmt.Errorf("log_path is required")
+	}
 	if !c.DetectIP && c.ExternalIP == "" {
 		return fmt.Errorf("external_ip is required when detect_ip is false")
 	}

@@ -1,6 +1,9 @@
 # dzsa-sync configuration
 # See docs/configuration.md for full reference.
 
+# log_path: path to the log file (JSON, rotated). Required.
+log_path: /var/log/dzsa-sync/dzsa-sync.log
+
 # detect_ip: when true, use https://ifconfig.net/json to detect external IP
 # detect_ip: false
 

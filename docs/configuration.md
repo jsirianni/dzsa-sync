@@ -10,6 +10,7 @@ dzsa-sync -config /etc/dzsa-sync/config.yaml
 
 | Field         | Type    | Description |
 |---------------|---------|-------------|
+| `log_path`    | string  | **Required.** Path to the log file (JSON, rotated via lumberjack). |
 | `detect_ip`   | bool    | When `true`, use https://ifconfig.net/json to detect the host's external IP. When `false`, you must set `external_ip`. |
 | `external_ip` | string  | Required when `detect_ip` is `false`. The external IP address used when registering servers with DZSA launcher. |
 | `ports`       | []int   | List of server query ports. Each port is registered as `external_ip:port` with dayzsalauncher.com. |
@@ -38,7 +39,7 @@ ports:
 
 ## Logging
 
-Logs are written as JSON to a file with rotation (see [lumberjack](https://pkg.go.dev/gopkg.in/natefinch/lumberjack.v2)). The default path is `/var/log/dzsa-sync/dzsa-sync.log`. Rotation settings (max size, backups, max age, compression) are built-in defaults.
+Logs are written as JSON to a file with rotation (see [lumberjack](https://pkg.go.dev/gopkg.in/natefinch/lumberjack.v2)). You must set `log_path` in the config (e.g. `/var/log/dzsa-sync/dzsa-sync.log`). Rotation settings (max size, backups, max age, compression) are built-in defaults.
 
 ## Metrics
 

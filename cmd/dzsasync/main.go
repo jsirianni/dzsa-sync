@@ -23,13 +23,12 @@ import (
 )
 
 const (
-	metricsPort        = "8888"
-	metricsPath        = "/metrics"
-	syncInterval       = 1 * time.Hour
-	defaultLogPath     = "/var/log/dzsa-sync/dzsa-sync.log"
-	defaultLogMaxSize  = 100
+	metricsPort         = "8888"
+	metricsPath         = "/metrics"
+	syncInterval        = 1 * time.Hour
+	defaultLogMaxSize   = 100
 	defaultLogMaxBackups = 3
-	defaultLogMaxAge   = 28
+	defaultLogMaxAge    = 28
 )
 
 func main() {
@@ -47,7 +46,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger, err := setupLogger(defaultLogPath)
+	if cfg.LogPath == "" {
+		fmt.Fprintln(os.Stderr, "config: log_path is required")
+		os.Exit(1)
+	}
+	logger, err := setupLogger(cfg.LogPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logger: %v\n", err)
 		os.Exit(1)

@@ -20,6 +20,7 @@ sudo apt install -f ./dzsa-sync-amd64.deb
 
 - Binary: `/usr/bin/dzsa-sync`
 - Config directory: `/etc/dzsa-sync/` (base config file included)
+- Log directory: `/var/log/dzsa-sync/` (mode 0750, owner dzsa-sync)
 - Systemd unit: `dzsa-sync.service`
 
 ### Scripts (blitz-style)
@@ -39,21 +40,7 @@ sudo apt install -f ./dzsa-sync-amd64.deb
    sudo systemctl start dzsa-sync
    ```
 
-3. View logs (if using journald for stdout/stderr) or the configured log file (e.g. `/var/log/dzsa-sync/dzsa-sync.log` when running as service with that path).
-
-## Docker
-
-Images are published to `ghcr.io/jsirianni/dzsa-sync`. The image is built from scratch and includes only the binary and CA certificates.
-
-```bash
-docker run -d --name dzsa-sync \
-  -v /path/to/config.yaml:/etc/dzsa-sync/config.yaml:ro \
-  -p 8888:8888 \
-  ghcr.io/jsirianni/dzsa-sync:latest \
-  -config /etc/dzsa-sync/config.yaml
-```
-
-Ensure the config is valid and the process can write logs to its configured path if you mount a volume for logs.
+3. View the configured log file (default `/var/log/dzsa-sync/dzsa-sync.log`).
 
 ## Manual run
 

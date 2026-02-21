@@ -1,6 +1,7 @@
 # Built binaries
 dzsa-sync
 dzsa-sync.exe
+dzsasync.exe
 
 # Goreleaser dist output
 dist/
