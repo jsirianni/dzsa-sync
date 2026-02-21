@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -23,12 +24,13 @@ import (
 )
 
 const (
-	metricsPort         = "8888"
-	metricsPath         = "/metrics"
-	syncInterval        = 1 * time.Hour
-	defaultLogMaxSize   = 100
+	metricsPort          = "8888"
+	metricsPath          = "/metrics"
+	syncInterval         = 1 * time.Hour
+	syncJitterMaxSeconds = 20
+	defaultLogMaxSize    = 100
 	defaultLogMaxBackups = 3
-	defaultLogMaxAge    = 28
+	defaultLogMaxAge     = 28
 )
 
 func main() {
@@ -179,6 +181,14 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 	defer ticker.Stop()
 
 	syncOnce := func() {
+		jitter := time.Duration(rand.Intn(syncJitterMaxSeconds+1)) * time.Second
+		if jitter > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(jitter):
+			}
+		}
 		ip := ifconfig.GetAddress()
 		if ip == "" {
 			ip = cfg.ExternalIP

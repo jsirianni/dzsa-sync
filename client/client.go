@@ -20,8 +20,8 @@ const (
 	baseURL = "https://dayzsalauncher.com/api/v1/query"
 )
 
-// DefaultHTTPTimeout is the default timeout for HTTP requests.
-const DefaultHTTPTimeout = 15 * time.Second
+// DefaultHTTPTimeout is the default timeout for HTTP requests to the DZSA launcher.
+const DefaultHTTPTimeout = 60 * time.Second
 
 // Client interacts with the DZSA API.
 type Client interface {
