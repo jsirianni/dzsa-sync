@@ -51,4 +51,4 @@ go build -o dzsa-sync ./cmd/dzsasync
 ./dzsa-sync -config /path/to/config.yaml
 ```
 
-Metrics are served on port 8888; ensure the log path is writable.
+The API server (metrics and `/api/v1/servers`) listens on a configurable host/port (default port 8888). Ensure the log path is writable.

@@ -18,12 +18,13 @@ No other runtimes or databases are required for normal development.
 
 | Path | Purpose |
 |------|--------|
-| `cmd/dzsasync/main.go` | Entrypoint: flags, config load, logger, metrics, HTTP client, DZSA client, ifconfig client, metrics server, port workers, shutdown. |
+| `cmd/dzsasync/main.go` | Entrypoint: flags, config load, logger, metrics, HTTP client, DZSA client, ifconfig client, server store, API server (metrics + /api/v1/servers), port workers, shutdown. |
 | `config/` | YAML config struct, `NewFromFile`, `Validate`. |
 | `client/` | DZSA API client (`Query(ctx, ip, port)`), interface + default implementation. |
 | `model/` | DZSA API response types (`QueryResponse`, `Result`, `Endpoint`, etc.). |
 | `internal/ifconfig/` | ifconfig.net client: `Get(ctx)`, `Run(ctx, onChanged)`, `GetAddress()`, `SetAddress()`, `BaseURL` (for tests). |
 | `internal/metrics/` | OTel provider, Prometheus handler, `HTTPRecorder`, `ClassifyError`, error consts. |
+| `internal/servers/` | Thread-safe store of latest DZSA result per port; `Set`, `Get`, `GetAll`. |
 | `package/` | Packaging: systemd unit, scripts (pre/post install/remove), base config, Dockerfile. |
 | `docs/` | User and contributor docs (configuration, installation, architecture, this guide). |
 | `go.mod` | Module and dependencies; includes `tool` block for revive and gosec. |
@@ -67,7 +68,7 @@ Then:
 ```
 
 - The process will write logs to the default path (see `defaultLogPath` in `main.go`). Ensure that path is writable or the process will fail at startup.
-- Metrics are served at `http://localhost:8888/metrics`.
+- The API server (metrics and `/api/v1/servers`) is configurable in config (default: all interfaces, port 8888); e.g. `http://localhost:8888/metrics`.
 - To stop: Ctrl+C (SIGINT) or send SIGTERM; the process shuts down gracefully.
 
 For a quick local test with IP detection (hits real ifconfig.net):

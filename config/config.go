@@ -8,6 +8,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// APIConfig configures the HTTP API server (metrics and /api/v1/servers).
+type APIConfig struct {
+	// Host is the listen address for the API server. Empty means all interfaces.
+	Host string `yaml:"host"`
+	// Port is the listen port (1-65535). Default 8888 when api is omitted.
+	Port int `yaml:"port"`
+}
+
 // Config is the root configuration.
 type Config struct {
 	// DetectIP when true, use https://ifconfig.net/json to detect external IP.
@@ -18,6 +26,8 @@ type Config struct {
 	Ports []int `yaml:"ports"`
 	// LogPath is the path to the log file (JSON, rotated via lumberjack). Empty uses the default.
 	LogPath string `yaml:"log_path"`
+	// API configures the HTTP server for /metrics and /api/v1/servers. When nil or zero, defaults to host "" and port 8888.
+	API *APIConfig `yaml:"api"`
 }
 
 // NewFromFile reads configuration from a YAML file.
@@ -50,6 +60,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate port: %d", p)
 		}
 		seen[p] = true
+	}
+	if c.API != nil && c.API.Port != 0 {
+		if c.API.Port < 1 || c.API.Port > 65535 {
+			return fmt.Errorf("api.port must be 1-65535, got %d", c.API.Port)
+		}
 	}
 	return nil
 }

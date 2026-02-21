@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -18,14 +21,15 @@ import (
 	"github.com/jsirianni/dzsa-sync/config"
 	"github.com/jsirianni/dzsa-sync/internal/ifconfig"
 	"github.com/jsirianni/dzsa-sync/internal/metrics"
+	"github.com/jsirianni/dzsa-sync/internal/servers"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
-	metricsPort          = "8888"
 	metricsPath          = "/metrics"
+	defaultAPIPort       = 8888
 	syncInterval         = 1 * time.Hour
 	syncJitterMaxSeconds = 20
 	defaultLogMaxSize    = 100
@@ -105,11 +109,23 @@ func main() {
 		ifconfigClient.SetAddress(cfg.ExternalIP)
 	}
 
-	// Metrics HTTP server
+	apiHost := ""
+	apiPort := defaultAPIPort
+	if cfg.API != nil {
+		apiHost = cfg.API.Host
+		if cfg.API.Port != 0 {
+			apiPort = cfg.API.Port
+		}
+	}
+
+	store := servers.New(cfg.Ports)
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, metricsProvider.Handler())
-	metricsServer := &http.Server{
-		Addr:              net.JoinHostPort("", metricsPort),
+	mux.HandleFunc("GET /api/v1/servers", serversListHandler(store))
+	mux.HandleFunc("GET /api/v1/servers/", serversSingleHandler(store))
+
+	apiServer := &http.Server{
+		Addr:              net.JoinHostPort(apiHost, strconv.Itoa(apiPort)),
 		Handler:            mux,
 		ReadHeaderTimeout:  10 * time.Second,
 		ReadTimeout:        10 * time.Second,
@@ -117,16 +133,16 @@ func main() {
 		IdleTimeout:        60 * time.Second,
 	}
 	go func() {
-		logger.Info("metrics server listening", zap.String("addr", ":"+metricsPort), zap.String("path", metricsPath))
-		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("metrics server", zap.Error(err))
+		logger.Info("API server listening", zap.String("addr", apiServer.Addr), zap.String("metrics", metricsPath))
+		if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("API server", zap.Error(err))
 			cancel()
 		}
 	}()
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		_ = metricsServer.Shutdown(shutdownCtx)
+		_ = apiServer.Shutdown(shutdownCtx)
 	}()
 
 	// Trigger channels: one per port; sending triggers an immediate sync and resets the 1h ticker.
@@ -162,7 +178,7 @@ func main() {
 		wg.Add(1)
 		go func(port int, trigger <-chan struct{}) {
 			defer wg.Done()
-			runPortWorker(signalCtx, logger, dzsaClient, ifconfigClient, cfg, port, trigger)
+			runPortWorker(signalCtx, logger, dzsaClient, ifconfigClient, cfg, store, port, trigger)
 		}(port, triggerChans[i])
 	}
 
@@ -173,7 +189,7 @@ func main() {
 	logger.Info("shutdown complete")
 }
 
-func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, ifconfig *ifconfig.Client, cfg *config.Config, port int, trigger <-chan struct{}) {
+func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, ifconfig *ifconfig.Client, cfg *config.Config, store *servers.Store, port int, trigger <-chan struct{}) {
 	logger = logger.With(zap.Int("port", port))
 	logger.Info("sync worker started for server port")
 
@@ -207,6 +223,7 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 			return
 		}
 		result := resp.Result
+		store.Set(port, &result)
 		logger.Info("server synced with dzsa launcher",
 			zap.String("endpoint", result.Endpoint.String()),
 			zap.String("name", result.Name),
@@ -230,6 +247,44 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func serversListHandler(store *servers.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		entries := store.GetAll()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"servers": entries})
+	}
+}
+
+func serversSingleHandler(store *servers.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/servers/")
+		if suffix == "" || strings.Contains(suffix, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		port, err := strconv.Atoi(suffix)
+		if err != nil {
+			http.Error(w, "invalid port", http.StatusBadRequest)
+			return
+		}
+		result, ok := store.Get(port)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	}
 }
 

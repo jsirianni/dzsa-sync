@@ -15,7 +15,7 @@ Register DayZ Standalone servers with [dayzsalauncher.com](https://dayzsalaunche
 - One goroutine per server port; each registers on a 1-hour ticker
 - When the external IP changes (every 10 minutes check), all servers are re-synced and tickers reset
 - JSON file logging with rotation (lumberjack)
-- OpenTelemetry metrics (request count, latency) exposed in Prometheus format at `http://:8888/metrics`
+- OpenTelemetry metrics (request count, latency) exposed in Prometheus format; configurable API server (default `:8888`) with `/metrics` and JSON `/api/v1/servers` endpoints
 
 ## Quick start
 
@@ -32,12 +32,12 @@ Register DayZ Standalone servers with [dayzsalauncher.com](https://dayzsalaunche
    dzsa-sync -config /path/to/config.yaml
    ```
 
-## Metrics
+## API server
 
-Prometheus metrics are served at `:8888/metrics`:
+The HTTP server is configurable via the `api` section in config (default: all interfaces, port 8888). It serves:
 
-- **RequestCount** – HTTP requests (attributes: `host` [dzsa \| ifconfig], `status_code`, `error` [none \| timeout \| status_4xx \| …])
-- **RequestLatency** – Request duration in seconds (attributes: `host`, `status_code`)
+- **Prometheus metrics**: `GET /metrics` — RequestCount and RequestLatency (attributes: `host` [dzsa | ifconfig], `status_code`, `error` [none | timeout | status_4xx | …]).
+- **Synced servers (JSON)**: `GET /api/v1/servers` — list all synced servers; `GET /api/v1/servers/<port>` — single server by config port (404 if unknown or not yet synced).
 
 ## Build and test
 
