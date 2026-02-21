@@ -152,6 +152,9 @@ func main() {
 		time.Sleep(2 * time.Second)
 	}
 
+	logger.Info("server ports from config, starting sync workers",
+		zap.Ints("ports", cfg.Ports))
+
 	var wg sync.WaitGroup
 	for i, port := range cfg.Ports {
 		wg.Add(1)
@@ -170,6 +173,8 @@ func main() {
 
 func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, ifconfig *ifconfig.Client, cfg *config.Config, port int, trigger <-chan struct{}) {
 	logger = logger.With(zap.Int("port", port))
+	logger.Info("sync worker started for server port")
+
 	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
 
@@ -186,13 +191,13 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 		defer cancelReq()
 		resp, err := dzsa.Query(ctx, ip, port)
 		if err != nil {
-			logger.Error("dzsa sync failed",
+			logger.Error("server sync failed",
 				zap.String("endpoint", fmt.Sprintf("%s:%d", ip, port)),
 				zap.Error(err))
 			return
 		}
 		result := resp.Result
-		logger.Info("dzsa sync completed",
+		logger.Info("server synced with dzsa launcher",
 			zap.String("endpoint", result.Endpoint.String()),
 			zap.String("name", result.Name),
 			zap.Int("players", result.Players),
