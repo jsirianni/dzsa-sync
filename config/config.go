@@ -16,14 +16,22 @@ type APIConfig struct {
 	Port int `yaml:"port"`
 }
 
+// Server is a single DayZ server to register with the DZSA launcher.
+type Server struct {
+	// Name is a label for the server (e.g. for metrics and API).
+	Name string `yaml:"name"`
+	// Port is the server query port (1-65535).
+	Port int `yaml:"port"`
+}
+
 // Config is the root configuration.
 type Config struct {
 	// DetectIP when true, use https://ifconfig.net/json to detect external IP.
 	DetectIP bool `yaml:"detect_ip"`
 	// ExternalIP is required when DetectIP is false.
 	ExternalIP string `yaml:"external_ip"`
-	// Ports is the list of server query ports to register with DZSA launcher.
-	Ports []int `yaml:"ports"`
+	// Servers is the list of servers to register with the DZSA launcher (replaces Ports).
+	Servers []Server `yaml:"servers"`
 	// LogPath is the path to the log file (JSON, rotated via lumberjack). Empty uses the default.
 	LogPath string `yaml:"log_path"`
 	// API configures the HTTP server for /metrics and /api/v1/servers. When nil or zero, defaults to host "" and port 8888.
@@ -51,15 +59,24 @@ func (c *Config) Validate() error {
 	if !c.DetectIP && c.ExternalIP == "" {
 		return fmt.Errorf("external_ip is required when detect_ip is false")
 	}
-	if len(c.Ports) == 0 {
-		return fmt.Errorf("ports must not be empty")
+	if len(c.Servers) == 0 {
+		return fmt.Errorf("servers must not be empty")
 	}
-	seen := make(map[int]bool)
-	for _, p := range c.Ports {
-		if seen[p] {
-			return fmt.Errorf("duplicate port: %d", p)
+	seenPort := make(map[int]bool)
+	for i, s := range c.Servers {
+		if s.Name == "" {
+			return fmt.Errorf("servers[%d]: name is required", i)
 		}
-		seen[p] = true
+		if s.Port == 0 {
+			return fmt.Errorf("servers[%d]: port is required", i)
+		}
+		if s.Port < 1 || s.Port > 65535 {
+			return fmt.Errorf("servers[%d]: port must be 1-65535, got %d", i, s.Port)
+		}
+		if seenPort[s.Port] {
+			return fmt.Errorf("duplicate port: %d", s.Port)
+		}
+		seenPort[s.Port] = true
 	}
 	if c.API != nil && c.API.Port != 0 {
 		if c.API.Port < 1 || c.API.Port > 65535 {

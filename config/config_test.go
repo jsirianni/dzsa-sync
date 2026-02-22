@@ -15,10 +15,13 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid detect_ip true",
 			c: Config{
-				LogPath:    "/var/log/dzsa-sync/dzsa-sync.log",
-				DetectIP:   true,
+				LogPath:  "/var/log/dzsa-sync/dzsa-sync.log",
+				DetectIP: true,
 				ExternalIP: "",
-				Ports:      []int{2424, 2324},
+				Servers: []Server{
+					{Name: "main", Port: 2424},
+					{Name: "modded", Port: 2324},
+				},
 			},
 			wantErr: false,
 		},
@@ -28,16 +31,16 @@ func TestConfig_Validate(t *testing.T) {
 				LogPath:    "/var/log/dzsa-sync/dzsa-sync.log",
 				DetectIP:   false,
 				ExternalIP: "203.0.113.10",
-				Ports:      []int{2424},
+				Servers:    []Server{{Name: "main", Port: 2424}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid empty log_path",
 			c: Config{
-				LogPath:    "",
-				DetectIP:   true,
-				Ports:      []int{2424},
+				LogPath:  "",
+				DetectIP: true,
+				Servers:  []Server{{Name: "main", Port: 2424}},
 			},
 			wantErr: true,
 		},
@@ -47,26 +50,26 @@ func TestConfig_Validate(t *testing.T) {
 				LogPath:    "/var/log/dzsa-sync/dzsa-sync.log",
 				DetectIP:   false,
 				ExternalIP: "",
-				Ports:      []int{2424},
+				Servers:    []Server{{Name: "main", Port: 2424}},
 			},
 			wantErr: true,
 		},
 		{
-			name: "invalid empty ports",
+			name: "invalid empty servers",
 			c: Config{
 				LogPath:    "/var/log/dzsa-sync/dzsa-sync.log",
 				DetectIP:   true,
 				ExternalIP: "",
-				Ports:      nil,
+				Servers:    nil,
 			},
 			wantErr: true,
 		},
 		{
-			name: "invalid empty ports slice",
+			name: "invalid empty servers slice",
 			c: Config{
 				LogPath:  "/var/log/dzsa-sync/dzsa-sync.log",
 				DetectIP: true,
-				Ports:    []int{},
+				Servers:  []Server{},
 			},
 			wantErr: true,
 		},
@@ -75,7 +78,29 @@ func TestConfig_Validate(t *testing.T) {
 			c: Config{
 				LogPath:  "/var/log/dzsa-sync/dzsa-sync.log",
 				DetectIP: true,
-				Ports:    []int{2424, 2324, 2424},
+				Servers: []Server{
+					{Name: "a", Port: 2424},
+					{Name: "b", Port: 2324},
+					{Name: "c", Port: 2424},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid server missing name",
+			c: Config{
+				LogPath:  "/var/log/dzsa-sync/dzsa-sync.log",
+				DetectIP: true,
+				Servers:  []Server{{Name: "", Port: 2424}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid server missing port",
+			c: Config{
+				LogPath:  "/var/log/dzsa-sync/dzsa-sync.log",
+				DetectIP: true,
+				Servers:  []Server{{Name: "main", Port: 0}},
 			},
 			wantErr: true,
 		},
@@ -95,9 +120,11 @@ func TestNewFromFile(t *testing.T) {
 
 	validYAML := []byte(`log_path: /var/log/dzsa-sync/dzsa-sync.log
 detect_ip: true
-ports:
-  - 2424
-  - 2324
+servers:
+  - name: main
+    port: 2424
+  - name: modded
+    port: 2324
 `)
 	validPath := filepath.Join(dir, "valid.yaml")
 	if err := os.WriteFile(validPath, validYAML, 0600); err != nil {
@@ -105,7 +132,7 @@ ports:
 	}
 
 	invalidYAML := []byte(`detect_ip: true
-ports: not a list
+servers: not a list
 `)
 	invalidPath := filepath.Join(dir, "invalid.yaml")
 	if err := os.WriteFile(invalidPath, invalidYAML, 0600); err != nil {
@@ -144,7 +171,7 @@ ports: not a list
 				t.Error("NewFromFile() returned nil config without error")
 			}
 			if !tt.wantErr && got != nil {
-				if got.DetectIP != true || len(got.Ports) != 2 {
+				if got.DetectIP != true || len(got.Servers) != 2 {
 					t.Errorf("NewFromFile() config = %+v", got)
 				}
 			}
@@ -155,20 +182,20 @@ ports: not a list
 func TestNewFromFile_Validation(t *testing.T) {
 	dir := t.TempDir()
 
-	t.Run("empty ports", func(t *testing.T) {
+	t.Run("empty servers", func(t *testing.T) {
 		path := filepath.Join(dir, "bad.yaml")
-		if err := os.WriteFile(path, []byte("log_path: /var/log/dzsa-sync/dzsa-sync.log\ndetect_ip: true\nports: []\n"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("log_path: /var/log/dzsa-sync/dzsa-sync.log\ndetect_ip: true\nservers: []\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		_, err := NewFromFile(path)
 		if err == nil {
-			t.Error("NewFromFile() expected validation error for empty ports")
+			t.Error("NewFromFile() expected validation error for empty servers")
 		}
 	})
 
 	t.Run("empty log_path", func(t *testing.T) {
 		path := filepath.Join(dir, "no_log.yaml")
-		if err := os.WriteFile(path, []byte("detect_ip: true\nports: [2424]\n"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("detect_ip: true\nservers:\n  - name: main\n    port: 2424\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		_, err := NewFromFile(path)

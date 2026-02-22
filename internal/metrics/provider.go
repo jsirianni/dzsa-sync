@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	serviceName    = "dzsa_sync"
-	meterName      = "dzsa-sync"
-	requestCount   = "request_count"
-	requestLatency = "request_latency_seconds"
+	serviceName        = "dzsa_sync"
+	meterName          = "dzsa-sync"
+	requestCount       = "request_count"
+	requestLatency     = "request_latency_seconds"
+	serverPlayerCount  = "server_player_count"
 )
 
 // Provider sets up OpenTelemetry metrics and Prometheus exposition.
@@ -84,6 +85,16 @@ func NewHTTPRecorder() (HTTPRecorder, error) {
 	return &otelRecorder{counter: counter, histogram: histogram}, nil
 }
 
+// NewPlayerCountRecorder returns a PlayerCountRecorder that records server_player_count (gauge).
+func NewPlayerCountRecorder() (PlayerCountRecorder, error) {
+	meter := otel.Meter(meterName)
+	gauge, err := meter.Int64Gauge(serverPlayerCount)
+	if err != nil {
+		return nil, fmt.Errorf("server_player_count gauge: %w", err)
+	}
+	return &playerCountRecorder{gauge: gauge}, nil
+}
+
 type otelRecorder struct {
 	counter   metric.Int64Counter
 	histogram metric.Float64Histogram
@@ -101,4 +112,13 @@ func (r *otelRecorder) RecordRequest(ctx context.Context, host string, statusCod
 		attribute.Int("status_code", statusCode),
 	)
 	r.histogram.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrsLatency))
+}
+
+type playerCountRecorder struct {
+	gauge metric.Int64Gauge
+}
+
+func (r *playerCountRecorder) RecordServerPlayerCount(ctx context.Context, serverName string, count int64) {
+	attrs := attribute.NewSet(attribute.String("server", serverName))
+	r.gauge.Record(ctx, count, metric.WithAttributeSet(attrs))
 }

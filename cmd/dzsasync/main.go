@@ -78,6 +78,10 @@ func main() {
 	if err != nil {
 		logger.Fatal("metrics recorder", zap.Error(err))
 	}
+	playerCountRecorder, err := metrics.NewPlayerCountRecorder()
+	if err != nil {
+		logger.Fatal("player count recorder", zap.Error(err))
+	}
 
 	httpClient := &http.Client{
 		Timeout:   client.DefaultHTTPTimeout,
@@ -116,7 +120,11 @@ func main() {
 		}
 	}
 
-	store := servers.New(cfg.Ports)
+	ports := make([]int, len(cfg.Servers))
+	for i, s := range cfg.Servers {
+		ports[i] = s.Port
+	}
+	store := servers.New(ports)
 	apiServer := api.NewServer(
 		net.JoinHostPort(apiHost, strconv.Itoa(apiPort)),
 		metricsProvider.Handler(),
@@ -135,8 +143,8 @@ func main() {
 		_ = apiServer.Shutdown(shutdownCtx)
 	}()
 
-	// Trigger channels: one per port; sending triggers an immediate sync and resets the 1h ticker.
-	triggerChans := make([]chan struct{}, len(cfg.Ports))
+	// Trigger channels: one per server; sending triggers an immediate sync and resets the 1h ticker.
+	triggerChans := make([]chan struct{}, len(cfg.Servers))
 	for i := range triggerChans {
 		triggerChans[i] = make(chan struct{}, 1)
 	}
@@ -160,16 +168,16 @@ func main() {
 		time.Sleep(2 * time.Second)
 	}
 
-	logger.Info("server ports from config, starting sync workers",
-		zap.Ints("ports", cfg.Ports))
+	logger.Info("servers from config, starting sync workers",
+		zap.Int("count", len(cfg.Servers)))
 
 	var wg sync.WaitGroup
-	for i, port := range cfg.Ports {
+	for i, srv := range cfg.Servers {
 		wg.Add(1)
-		go func(port int, trigger <-chan struct{}) {
+		go func(name string, port int, trigger <-chan struct{}) {
 			defer wg.Done()
-			runPortWorker(signalCtx, logger, dzsaClient, ifconfigClient, cfg, store, port, trigger)
-		}(port, triggerChans[i])
+			runPortWorker(signalCtx, logger, dzsaClient, ifconfigClient, cfg, store, playerCountRecorder, name, port, trigger)
+		}(srv.Name, srv.Port, triggerChans[i])
 	}
 
 	<-signalCtx.Done()
@@ -179,9 +187,9 @@ func main() {
 	logger.Info("shutdown complete")
 }
 
-func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, ifconfig *ifconfig.Client, cfg *config.Config, store *servers.Store, port int, trigger <-chan struct{}) {
-	logger = logger.With(zap.Int("port", port))
-	logger.Info("sync worker started for server port")
+func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, ifconfig *ifconfig.Client, cfg *config.Config, store *servers.Store, playerCount metrics.PlayerCountRecorder, serverName string, port int, trigger <-chan struct{}) {
+	logger = logger.With(zap.String("server", serverName), zap.Int("port", port))
+	logger.Info("sync worker started for server")
 
 	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
@@ -214,6 +222,7 @@ func runPortWorker(ctx context.Context, logger *zap.Logger, dzsa client.Client, 
 		}
 		result := resp.Result
 		store.Set(port, &result)
+		playerCount.RecordServerPlayerCount(ctx, serverName, int64(result.Players))
 		logger.Info("server synced with dzsa launcher",
 			zap.String("endpoint", result.Endpoint.String()),
 			zap.String("name", result.Name),

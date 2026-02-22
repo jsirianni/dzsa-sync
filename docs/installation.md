@@ -32,7 +32,7 @@ sudo apt install -f ./dzsa-sync-amd64.deb
 
 ### After install
 
-1. Edit `/etc/dzsa-sync/config.yaml` (set `detect_ip` and `ports`, and `external_ip` if not using IP detection).
+1. Edit `/etc/dzsa-sync/config.yaml` (set `detect_ip` and `servers` (name + port for each), and `external_ip` if not using IP detection).
 2. Enable and start the service:
 
    ```bash

@@ -11,3 +11,8 @@ import (
 type HTTPRecorder interface {
 	RecordRequest(ctx context.Context, host string, statusCode int, errType string, duration time.Duration)
 }
+
+// PlayerCountRecorder records the server_player_count gauge (number of players per server).
+type PlayerCountRecorder interface {
+	RecordServerPlayerCount(ctx context.Context, serverName string, count int64)
+}

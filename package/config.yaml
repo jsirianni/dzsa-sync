@@ -10,5 +10,7 @@ log_path: /var/log/dzsa-sync/dzsa-sync.log
 # external_ip: required when detect_ip is false
 # external_ip: ""
 
-# ports: list of server query ports to register with DZSA launcher
-# ports: []
+# servers: list of servers (name + port). Name is used in metrics and logs.
+# servers:
+#   - name: main
+#     port: 2424

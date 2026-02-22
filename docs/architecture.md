@@ -9,10 +9,10 @@ This document describes the architecture of **dzsa-sync**: how it is structured,
 **dzsa-sync** registers DayZ Standalone server endpoints with [dayzsalauncher.com](https://dayzsalauncher.com) so they appear in the DZSA launcher. It does **not** run a game server or export Prometheus metrics about game state; it only:
 
 1. **Resolves the host’s external IP** (either from config or by querying [ifconfig.net](https://ifconfig.net/json)).
-2. **Periodically registers each configured port** with the DZSA API by performing a GET request per `external_ip:port`.
+2. **Periodically registers each configured server** (name + port) with the DZSA API by performing a GET request per `external_ip:port`.
 3. **Exposes an HTTP API** (configurable host/port, default `:8888`) with Prometheus metrics and JSON endpoints for synced server data, and **writes JSON logs** (including sync results and ifconfig outcomes).
 
-When the external IP changes (in “detect IP” mode), the program immediately re-syncs all ports and resets the per-port sync interval so that the launcher sees the new IP without waiting for the next scheduled tick.
+When the external IP changes (in “detect IP” mode), the program immediately re-syncs all servers and resets the per-server sync interval so that the launcher sees the new IP without waiting for the next scheduled tick.
 
 ---
 
@@ -35,7 +35,7 @@ There are no databases or message queues; state is in-memory (current IP, ticker
 │  - Load config, setup logger (JSON + lumberjack), signal handling       │
 │  - Create shared HTTP client, metrics provider, DZSA client, ifconfig   │
 │  - Create server store (internal/servers), start API HTTP server         │
-│  - Start ifconfig loop (if detect_ip) and per-port workers              │
+│  - Start ifconfig loop (if detect_ip) and per-server workers             │
 │  - On shutdown: cancel context, wait for workers                        │
 └─────────────────────────────────────────────────────────────────────────┘
          │                    │                    │                    │
@@ -46,6 +46,8 @@ There are no databases or message queues; state is in-memory (current IP, ticker
 │ - Validate   │    │ - Metrics via   │   │ - Run() loop │   │ - HTTPRecorder  │
 │ - API host/  │    │   HTTPRecorder  │   │ - GetAddress │   │ - RequestCount  │
 │   port       │    └─────────────────┘   └──────────────┘   │   RequestLatency│
+│ - Servers    │                                             │ server_player_  │
+│   (name+port)│                                             │ count           │
 └──────────────┘            │                    │             └─────────────────┘
          │                   │                    │                    │
          │                   ▼                    ▼                    │
@@ -66,11 +68,11 @@ There are no databases or message queues; state is in-memory (current IP, ticker
                               Prometheus /metrics + JSON /api/v1/servers
 ```
 
-- **config**: Reads and validates the YAML config (detect_ip, external_ip, ports).
+- **config**: Reads and validates the YAML config (detect_ip, external_ip, servers with name and port).
 - **client**: Single responsibility—call the DZSA API for one `ip:port`; uses shared `*http.Client` and optional `metrics.HTTPRecorder`.
 - **internal/ifconfig**: Fetches public IP from ifconfig.net; caches it and runs a 10-minute loop when `detect_ip` is true; supports `BaseURL` override for tests.
-- **internal/metrics**: OpenTelemetry meter provider, Prometheus exporter, and `HTTPRecorder` implementation (request count + latency by host, status code, error type). Serves `/metrics` via the handler returned by `Provider.Handler()`.
-- **internal/servers**: Thread-safe store of the latest DZSA sync result per config port. Updated by port workers on successful sync; read by API handlers for `GET /api/v1/servers` and `GET /api/v1/servers/<port>` (JSON).
+- **internal/metrics**: OpenTelemetry meter provider, Prometheus exporter, `HTTPRecorder` (request count + latency), and `PlayerCountRecorder` (server_player_count gauge with attribute `server`). Serves `/metrics` via the handler returned by `Provider.Handler()`.
+- **internal/servers**: Thread-safe store of the latest DZSA sync result per config port. Updated by server workers on successful sync; read by API handlers for `GET /api/v1/servers` and `GET /api/v1/servers/<port>` (JSON).
 - **model**: DTOs for the DZSA API response (`QueryResponse`, `Result`, `Endpoint`, etc.).
 
 ---
@@ -95,8 +97,8 @@ dzsa-sync/
 
 - **cmd/dzsasync**: The only `main` package. Parses `-config`, builds logger, metrics, HTTP client, DZSA client, ifconfig client, server store; starts the API server (metrics + /api/v1/servers) and goroutines; handles shutdown.
 - **config**: No internal state beyond the config struct; used only at startup.
-- **client**: Stateless except for the injected `*http.Client` and optional `HTTPRecorder`; used by port workers.
-- **internal/ifconfig**: Holds cached `address` (mutex-protected); `Run()` runs in a dedicated goroutine and updates the cache; port workers read via `GetAddress()`.
+- **client**: Stateless except for the injected `*http.Client` and optional `HTTPRecorder`; used by server workers.
+- **internal/ifconfig**: Holds cached `address` (mutex-protected); `Run()` runs in a dedicated goroutine and updates the cache; server workers read via `GetAddress()`.
 - **internal/metrics**: Global meter provider is set in `NewProvider()`; `HTTPRecorder` is implemented here and used by both DZSA and ifconfig clients.
 
 ---
@@ -108,10 +110,10 @@ dzsa-sync/
 | Goroutine | Started in | Responsibility |
 |-----------|------------|----------------|
 | **API server** | main | Serves HTTP on configurable host/port (default `:8888`) with `/metrics` and `/api/v1/servers` (JSON); runs until shutdown. |
-| **ifconfig loop** | main (if `detect_ip`) | Every 10 minutes calls ifconfig; on IP change updates cache and sends a trigger to each port worker. Blocks until context cancel. |
-| **Port worker** (one per port) | main | Runs a 1-hour ticker and listens on a trigger channel; on tick or trigger, resolves IP (ifconfig or config), calls DZSA `Query(ip, port)`, logs result; on trigger also resets ticker. Exits when context is cancelled. |
+| **ifconfig loop** | main (if `detect_ip`) | Every 10 minutes calls ifconfig; on IP change updates cache and sends a trigger to each server worker. Blocks until context cancel. |
+| **Server worker** (one per server) | main | Runs a 1-hour ticker and listens on a trigger channel; on tick or trigger, resolves IP (ifconfig or config), calls DZSA `Query(ip, port)`, records server_player_count, logs result; on trigger also resets ticker. Exits when context is cancelled. |
 
-Main goroutine: after starting the above, it blocks on `<-signalCtx.Done()`, then cancels the root context and waits for all port workers via `sync.WaitGroup`.
+Main goroutine: after starting the above, it blocks on `<-signalCtx.Done()`, then cancels the root context and waits for all server workers via `sync.WaitGroup`.
 
 ### 5.2 Trigger channels (IP change)
 
@@ -121,14 +123,14 @@ When ifconfig detects an IP change, it calls `onIPChanged(oldIP, newIP)`. That f
 - `trigger`: perform one sync **and** reset the 1-hour ticker (so the next sync is again in 1 hour from now).
 - `ctx.Done()`: exit.
 
-So an IP change causes one immediate sync per port and resets the interval without waiting for the next hourly tick.
+So an IP change causes one immediate sync per server and resets the interval without waiting for the next hourly tick.
 
 ### 5.3 Shared state
 
-- **Current external IP**: Stored in `internal/ifconfig.Client.address` (mutex). Written by ifconfig `Run` (and by `SetAddress` when `detect_ip` is false). Read by port workers via `GetAddress()` and by main when passing static `ExternalIP` into ifconfig.
+- **Current external IP**: Stored in `internal/ifconfig.Client.address` (mutex). Written by ifconfig `Run` (and by `SetAddress` when `detect_ip` is false). Read by server workers via `GetAddress()` and by main when passing static `ExternalIP` into ifconfig.
 - **Config**: Read-only after load; no concurrent writes.
 - **Metrics**: Recorded via OpenTelemetry; concurrency-safe.
-- **Synced server data**: Stored in `internal/servers.Store` (RWMutex). Written by port workers on successful DZSA sync; read by API handlers for `GET /api/v1/servers` and `GET /api/v1/servers/<port>`.
+- **Synced server data**: Stored in `internal/servers.Store` (RWMutex). Written by server workers on successful DZSA sync; read by API handlers for `GET /api/v1/servers` and `GET /api/v1/servers/<port>`.
 
 ---
 
@@ -139,21 +141,22 @@ So an IP change causes one immediate sync per port and resets the interval witho
 
 2. **IP resolution**  
    - If `!detect_ip`: `ifconfig.SetAddress(cfg.ExternalIP)`; no ifconfig loop.  
-   - If `detect_ip`: ifconfig `Run()` goroutine starts; it does an initial GET, then every 10 minutes another GET; each successful response updates the cached IP and, if the IP changed, calls `onIPChanged`, which notifies all port workers.
+   - If `detect_ip`: ifconfig `Run()` goroutine starts; it does an initial GET, then every 10 minutes another GET; each successful response updates the cached IP and, if the IP changed, calls `onIPChanged`, which notifies all server workers.
 
-3. **Per-port sync**  
-   Each port worker, on tick or trigger: reads `ifconfig.GetAddress()` (or falls back to `cfg.ExternalIP`), then calls `dzsaClient.Query(ctx, ip, port)`. The client builds `GET https://dayzsalauncher.com/api/v1/query/{ip}:{port}`, performs the request, decodes JSON into `model.QueryResponse`, and records metrics. On success, the worker calls `store.Set(port, &resp.Result)` so the API can serve the latest data. Main logs the sync result (endpoint, name, players, etc.). Errors are logged and metrics still record the attempt.
+3. **Per-server sync**  
+   Each server worker, on tick or trigger: reads `ifconfig.GetAddress()` (or falls back to `cfg.ExternalIP`), then calls `dzsaClient.Query(ctx, ip, port)`. The client builds `GET https://dayzsalauncher.com/api/v1/query/{ip}:{port}`, performs the request, decodes JSON into `model.QueryResponse`, and records HTTP metrics. On success, the worker calls `store.Set(port, &resp.Result)`, records `server_player_count` (gauge) with the config server name and `result.Players`, and logs the sync result (endpoint, name, players, etc.). Errors are logged and HTTP metrics still record the attempt.
 
 4. **Shutdown**  
-   SIGINT/SIGTERM → `signalCtx` is done → main cancels root context → API server is shut down via `Shutdown()`, ifconfig loop exits, each port worker sees `ctx.Done()` and returns → `WaitGroup` completes → process exits.
+   SIGINT/SIGTERM → `signalCtx` is done → main cancels root context → API server is shut down via `Shutdown()`, ifconfig loop exits, each server worker sees `ctx.Done()` and returns → `WaitGroup` completes → process exits.
 
 ---
 
 ## 7. Key types and interfaces
 
-- **config.Config**: `DetectIP`, `ExternalIP`, `Ports []int`, `API *APIConfig` (optional host/port for HTTP server). Validated by `Validate()` (e.g. external_ip required when !DetectIP, ports non-empty, no duplicate ports, api.port 1–65535 when set).
+- **config.Config**: `DetectIP`, `ExternalIP`, `Servers []Server` (each `Server` has `Name` and `Port`), `API *APIConfig` (optional host/port for HTTP server). Validated by `Validate()` (e.g. external_ip required when !DetectIP, servers non-empty, each server has name and port 1–65535, no duplicate ports, api.port 1–65535 when set).
 - **client.Client**: Interface with `Query(ctx, ip, port) (*model.QueryResponse, error)`. Implemented by `defaultClient` (uses base URL, `*http.Client`, optional `HTTPRecorder`).
 - **internal/metrics.HTTPRecorder**: Interface with `RecordRequest(ctx, host, statusCode, errType string, duration time.Duration)`. Implemented by the OTel-based recorder; used by DZSA and ifconfig after each HTTP call. `host` is `"dzsa"` or `"ifconfig"`; `errType` comes from `metrics.ClassifyError(err, statusCode)` (e.g. `none`, `timeout`, `status_4xx`).
+- **internal/metrics.PlayerCountRecorder**: Interface with `RecordServerPlayerCount(ctx, serverName string, count int64)`. Records the `server_player_count` gauge (attribute `server` from config). Used by server workers after a successful DZSA sync.
 - **model.QueryResponse**: DZSA API response; contains `Result` (Name, Endpoint, Players, MaxPlayers, Version, Map, etc.).
 
 ---
@@ -173,22 +176,23 @@ Logs are structured (zap fields); no separate “access log” for the metrics e
 - **Stack**: OpenTelemetry SDK with Prometheus exporter; metrics are served in Prometheus exposition format at `GET /metrics` on the configurable API server (default `:8888`).
 - **Instruments** (namespace `dzsa_sync`):  
   - **RequestCount** (counter): One per HTTP request; attributes `host` (dzsa | ifconfig), `status_code`, `error` (e.g. none, timeout, status_4xx, status_5xx, decode_error, unknown).  
-  - **RequestLatency** (histogram): Duration in seconds per request; attributes `host`, `status_code`.
-- **Recording**: Done inside the DZSA client and ifconfig client after each request, using the shared `HTTPRecorder`. Error classification is in `internal/metrics` (`ClassifyError`).
+  - **RequestLatency** (histogram): Duration in seconds per request; attributes `host`, `status_code`.  
+  - **server_player_count** (gauge): Number of players from the DZSA response; attribute `server` (config server name). Recorded by server workers after each successful sync.
+- **Recording**: HTTP metrics done inside the DZSA client and ifconfig client after each request, using the shared `HTTPRecorder`. Player count recorded by server workers using `PlayerCountRecorder`. Error classification is in `internal/metrics` (`ClassifyError`).
 
 ---
 
 ## 10. Configuration
 
 - **Source**: Single YAML file; path given by required `-config` flag.
-- **Fields**: `detect_ip` (bool), `external_ip` (string), `ports` ([]int), `api` (optional: `host`, `port`). See [docs/configuration.md](configuration.md).
+- **Fields**: `detect_ip` (bool), `external_ip` (string), `servers` ([]{name, port}), `api` (optional: `host`, `port`). See [docs/configuration.md](configuration.md).
 - **Validation**: On load, `Validate()` is called; invalid config causes process to exit with an error before any goroutines or servers start.
 
 ---
 
 ## 11. Shutdown and signals
 
-- **Signals**: `SIGINT`, `SIGTERM` are captured via `signal.NotifyContext`. The resulting context (`signalCtx`) is passed to the ifconfig loop and to each port worker.
-- **Order**: When the signal is received, main stops listening and cancels the root context. The metrics HTTP server is shut down with a short timeout. The ifconfig loop and port workers observe `ctx.Done()` and return. Main waits on the port workers’ `WaitGroup`, then exits. No second signal handler is required; a forceful kill (SIGKILL) will terminate the process without graceful shutdown.
+- **Signals**: `SIGINT`, `SIGTERM` are captured via `signal.NotifyContext`. The resulting context (`signalCtx`) is passed to the ifconfig loop and to each server worker.
+- **Order**: When the signal is received, main stops listening and cancels the root context. The metrics HTTP server is shut down with a short timeout. The ifconfig loop and server workers observe `ctx.Done()` and return. Main waits on the port workers’ `WaitGroup`, then exits. No second signal handler is required; a forceful kill (SIGKILL) will terminate the process without graceful shutdown.
 
 This architecture keeps the process single-purpose (DZSA registration + IP detection + self-observability), with clear boundaries between config, clients, metrics, and orchestration, and with concurrency limited to a fixed set of goroutines and channels.

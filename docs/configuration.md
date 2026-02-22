@@ -13,7 +13,9 @@ dzsa-sync -config /etc/dzsa-sync/config.yaml
 | `log_path`    | string  | **Required.** Path to the log file (JSON, rotated via lumberjack). |
 | `detect_ip`   | bool    | When `true`, use https://ifconfig.net/json to detect the host's external IP. When `false`, you must set `external_ip`. |
 | `external_ip` | string  | Required when `detect_ip` is `false`. The external IP address used when registering servers with DZSA launcher. |
-| `ports`       | []int   | List of server query ports. Each port is registered as `external_ip:port` with dayzsalauncher.com. |
+| `servers`     | []object| List of servers to register. Each entry must have `name` (string) and `port` (1–65535). Names are used in metrics and logs. |
+| `servers[].name` | string | **Required.** Label for the server (e.g. for metrics attribute `server`). |
+| `servers[].port` | int    | **Required.** Server query port (1–65535). Registered as `external_ip:port` with dayzsalauncher.com. |
 | `api`         | object  | Optional. HTTP API server (metrics and synced-servers endpoints). When omitted, defaults to host `""` (all interfaces) and port `8888`. |
 | `api.host`    | string  | Listen address for the API server. Empty means all interfaces (e.g. `:port`). |
 | `api.port`    | int     | Listen port (1–65535). Default `8888` when `api` is omitted. |
@@ -24,10 +26,13 @@ dzsa-sync -config /etc/dzsa-sync/config.yaml
 
 ```yaml
 detect_ip: true
-ports:
-  - 2424
-  - 2324
-  - 27016
+servers:
+  - name: main
+    port: 2424
+  - name: modded
+    port: 2324
+  - name: experimental
+    port: 27016
 ```
 
 **Static IP:**
@@ -35,9 +40,11 @@ ports:
 ```yaml
 detect_ip: false
 external_ip: "203.0.113.10"
-ports:
-  - 2424
-  - 2324
+servers:
+  - name: main
+    port: 2424
+  - name: modded
+    port: 2324
 ```
 
 **With API server on localhost:**
@@ -47,7 +54,9 @@ api:
   host: localhost
   port: 8888
 detect_ip: true
-ports: [2424]
+servers:
+  - name: main
+    port: 2424
 ```
 
 ## Logging
@@ -58,5 +67,5 @@ Logs are written as JSON to a file with rotation (see [lumberjack](https://pkg.g
 
 The same HTTP server serves Prometheus metrics and the synced-servers JSON API. When `api` is omitted, it listens on all interfaces at port 8888.
 
-- **Prometheus metrics**: `GET /metrics` — see the repo README for metric names and labels.
+- **Prometheus metrics**: `GET /metrics` — see the repo README for metric names and labels (including `server_player_count` with attribute `server`).
 - **Synced servers**: `GET /api/v1/servers` returns a JSON list of all synced servers (by config port). `GET /api/v1/servers/<port>` returns a single server by the port number defined in config; responds with 404 if the port is not configured or not yet synced.

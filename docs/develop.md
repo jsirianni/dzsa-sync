@@ -58,7 +58,9 @@ A config file is required. Example minimal config (e.g. `config.yaml` in the rep
 ```yaml
 detect_ip: false
 external_ip: "203.0.113.10"   # use a real IP or test value
-ports: [2424]
+servers:
+  - name: main
+    port: 2424
 ```
 
 Then:
@@ -75,7 +77,9 @@ For a quick local test with IP detection (hits real ifconfig.net):
 
 ```yaml
 detect_ip: true
-ports: [2424]
+servers:
+  - name: main
+    port: 2424
 ```
 
 ---
